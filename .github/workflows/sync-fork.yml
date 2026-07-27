@@ -1,0 +1,55 @@
+name: Sync Fork From Upstream
+
+on:
+  schedule:
+    # 每天 UTC 02:00 自动同步
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: [main, dev]
+
+    env:
+      # 可在仓库 Variables 里覆盖(示例: Akokk0/bilibili-notify)
+      UPSTREAM_REPO: ${{ vars.UPSTREAM_REPO || 'Akokk0/bilibili-notify' }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Sync ${{ matrix.branch }}
+        run: |
+          set -euo pipefail
+
+          BRANCH="${{ matrix.branch }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+
+          if ! git ls-remote --exit-code --heads upstream "${BRANCH}" > /dev/null; then
+            echo "Skip: upstream branch ${BRANCH} not found."
+            exit 0
+          fi
+
+          git fetch upstream "${BRANCH}"
+
+          if git ls-remote --exit-code --heads origin "${BRANCH}" > /dev/null; then
+            git checkout -B "${BRANCH}" "origin/${BRANCH}"
+          else
+            git checkout -B "${BRANCH}"
+          fi
+
+          git reset --hard "upstream/${BRANCH}"
+          git push origin "${BRANCH}" --force-with-lease
